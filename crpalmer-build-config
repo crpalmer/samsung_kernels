@@ -1,0 +1,18 @@
+CROSS_COMPILE=/opt/toolchains/linaro-4.8/bin/arm-eabi-
+HOST_CC=gcc
+LOCAL_BUILD_DIR=out
+TARGET_DIR=/tmp/
+SYSTEM_PARTITION="/dev/block/mmcblk0p32"
+DEFCONFIG="VARIANT_DEFCONFIG=msm8974_sec_picassoeur_defconfig msm8974_sec_defconfig SELINUX_DEFCONFIG=selinux_defconfig"
+FLASH_BOOT='write_raw_image("/tmp/boot.img", "boot")'
+
+# ----
+
+N_CORES=8
+VERSION=sm-t525-0.0.0
+
+# ----
+
+BANNER=`cat <<EOF
+ui_print("SM-T525 by crpalmer");
+EOF`
