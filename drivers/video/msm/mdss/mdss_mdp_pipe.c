@@ -43,7 +43,7 @@ static inline u32 mdss_mdp_pipe_read(struct mdss_mdp_pipe *pipe, u32 reg)
 	return readl_relaxed(pipe->base + reg);
 }
 
-static u32 mdss_mdp_smp_mmb_reserve(struct mdss_mdp_pipe_smp_map *smp_map,
+static u32 mdss_mdp_smp_mmb_reserve(struct mdss_mdp_pipe *pipe, struct mdss_mdp_pipe_smp_map *smp_map,
 	size_t n)
 {
 	u32 i, mmb;
@@ -55,14 +55,22 @@ static u32 mdss_mdp_smp_mmb_reserve(struct mdss_mdp_pipe_smp_map *smp_map,
 	else
 		n -= fixed_cnt;
 
-#if !defined(CONFIG_FB_MSM_EDP_SAMSUNG)
-	if (n < bitmap_weight(smp_map->allocated, SMP_MB_CNT)) { 
-		pr_debug("Can't free extra mmb in set call\n");
-		return 0;
-	} 
-#endif
+	i = bitmap_weight(smp_map->allocated, SMP_MB_CNT);
+
+	/*
+	 * SMP programming is not double buffered. Fail the request,
+	 * that calls for change in smp configuration (addition/removal
+	 * of smp blocks), so that fallback solution happens.
+	 */
+	if (pipe->src_fmt->is_yuv || (pipe->flags & MDP_BACKEND_COMPOSITION)) {
+		if (i != 0 && n != i) {
+			pr_debug("Can't change mmb configuration in set call\n");
+			return 0;
+		}
+	}
+
 	/* reserve more blocks if needed, but can't free mmb at this point */
-	for (i = bitmap_weight(smp_map->allocated, SMP_MB_CNT); i < n; i++) {
+	for (; i < n; i++) {
 		if (bitmap_full(mdata->mmb_alloc_map, SMP_MB_CNT))
 			break;
 
@@ -170,11 +178,7 @@ int mdss_mdp_smp_reserve(struct mdss_mdp_pipe *pipe)
 	struct mdss_data_type *mdata = mdss_mdp_get_mdata();
 	u32 num_blks = 0, reserved = 0;
 	struct mdss_mdp_plane_sizes ps;
-#if !defined(CONFIG_FB_MSM_EDP_SAMSUNG)
-	int i, j;
-#else
 	int i;
-#endif
 	int rc = 0, rot_mode = 0;
 	u32 nlines, format;
 	u16 width;
@@ -234,17 +238,16 @@ int mdss_mdp_smp_reserve(struct mdss_mdp_pipe *pipe)
 	nlines = pipe->bwc_mode ? 1 : 2;
 
 	mutex_lock(&mdss_mdp_smp_lock);
-
-#if !defined(CONFIG_FB_MSM_EDP_SAMSUNG)
-	for (j = (MAX_PLANES - 1); j >= ps.num_planes; j--) { 
-		if(bitmap_weight(pipe->smp_map[j].allocated, SMP_MB_CNT)) { 
-			pr_debug("Extra mmb identified for pnum=%d plane=%d\n", 
-					pipe->num, j); 
-			mutex_unlock(&mdss_mdp_smp_lock); 
-			return -EAGAIN; 
-		} 
-	} 
-#endif
+	if (pipe->src_fmt->is_yuv || (pipe->flags & MDP_BACKEND_COMPOSITION)) {
+		for (i = (MAX_PLANES - 1); i >= ps.num_planes; i--) {
+			if (bitmap_weight(pipe->smp_map[i].allocated, SMP_MB_CNT)) {
+				pr_debug("Extra mmb identified for pnum=%d plane=%d\n",
+				pipe->num, i);
+				mutex_unlock(&mdss_mdp_smp_lock);
+				return -EAGAIN;
+			}
+		}
+	}
 
 	for (i = 0; i < ps.num_planes; i++) {
 		if (rot_mode) {
@@ -264,7 +267,7 @@ int mdss_mdp_smp_reserve(struct mdss_mdp_pipe *pipe)
 
 		pr_debug("reserving %d mmb for pnum=%d plane=%d\n",
 				num_blks, pipe->num, i);
-		reserved = mdss_mdp_smp_mmb_reserve(&pipe->smp_map[i],
+		reserved = mdss_mdp_smp_mmb_reserve(pipe, &pipe->smp_map[i],
 			num_blks);
 		if (reserved < num_blks)
 			break;
@@ -494,6 +497,9 @@ static struct mdss_mdp_pipe *mdss_mdp_pipe_init(struct mdss_mdp_mixer *mixer,
 		 * shared as long as its attached to a writeback mixer
 		 */
 		pipe = mdata->dma_pipes + mixer->num;
+		if ((pipe->mixer->type != MDSS_MDP_MIXER_TYPE_WRITEBACK) ||
+				(pipe->mixer->rotator_mode && mixer->rotator_mode))
+			return NULL;
 		mdss_mdp_pipe_map(pipe);
 		pr_debug("pipe sharing for pipe=%d\n", pipe->num);
 	} else {

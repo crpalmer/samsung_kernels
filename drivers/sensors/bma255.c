@@ -984,18 +984,8 @@ static int bma255_setup_pin(struct bma255_p *data)
 		       "reactive_wake_lock");
 
 	data->irq1 = gpio_to_irq(data->acc_int1);
-	ret = request_threaded_irq(data->irq1, NULL, bma255_irq_thread,
-		IRQF_TRIGGER_RISING | IRQF_ONESHOT, "bma255_accel", data);
-	if (ret < 0) {
-		pr_err("[SENSOR]: %s - can't allocate irq.\n", __func__);
-		goto exit_reactive_irq;
-	}
-
-	disable_irq(data->irq1);
 	goto exit;
 
-exit_reactive_irq:
-	wake_lock_destroy(&data->reactive_wake_lock);
 exit_acc_int1:
 	gpio_free(data->acc_int1);
 exit:
@@ -1199,6 +1189,15 @@ static int bma255_probe(struct i2c_client *client,
 	INIT_WORK(&data->work, bma255_work_func);
 	INIT_DELAYED_WORK(&data->irq_work, bma255_irq_work_func);
 
+	ret = request_threaded_irq(data->irq1, NULL, bma255_irq_thread,
+		IRQF_TRIGGER_RISING | IRQF_ONESHOT, "bma255_accel", data);
+	if (ret < 0) {
+		pr_err("[SENSOR]: %s - can't allocate irq.\n", __func__);
+		goto exit_request_threaded_irq;
+	}
+
+	disable_irq(data->irq1);
+
 	atomic_set(&data->enable, OFF);
 	data->time_count = 0;
 	data->irq_state = 0;
@@ -1213,6 +1212,7 @@ static int bma255_probe(struct i2c_client *client,
 
 	return 0;
 
+exit_request_threaded_irq:
 exit_create_workqueue:
 	sensors_unregister(data->factory_device, sensor_attrs);
 	sensors_remove_symlink(&data->input->dev.kobj, data->input->name);
