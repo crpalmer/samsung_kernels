@@ -32,7 +32,6 @@
 		status = "ok";
 	};
 
-
 	qcom,mdss_dsi@fd922800 {
 		qcom,dsi-pref-prim-pan = <&dsi_dual_2560p_vid_right>;
 	};
@@ -67,8 +66,10 @@
 		    compatible = "max77888,i2c";
 		    reg = <0x66>;
 		    interrupt-parent = <&pm8941_gpios>;
-		    interrupts = <23 0>;
+		    interrupts = <23 0>,
+		    		 <27 0>;
 		    max77888,irq-gpio = <&pm8941_gpios 23 0x00>;
+		    max77888,irq-reset-gpio = <&pm8941_gpios 27 0x00>;
 		    max77888,irq-base = <357>;
 		    max77888,wakeup = <1>;
 		};
@@ -264,7 +265,7 @@
 			synaptics,supply-num = <2>;			/* the number of regulators */
 			synaptics,supply-name = "8941_l22", "8941_l10";	/* the name of regulators, in power-on order */
 			synaptics,irq-gpio = <&pm8941_gpios 30 0x1>;
-			synaptics,reset-gpio = <&msmgpio 41 0x1>;
+			synaptics,reset-gpio = <&pm8941_gpios 20 0x1>;
 			synaptics,i2c-pull-up = <1>;
 			synaptics,tsp-project = "Mondrian";
 			synaptics,tsp-coords = <1599 2559>;
@@ -296,21 +297,10 @@
 			qcom,gp2a030a-vcc-voltage-level = <2850000 2850000>;
 			qcom,gp2a030a-vcc-always-on;
 		};
-		asp01@24 {
-			compatible = "asp01";
-			reg = <0x24>;
-			asp01,irq_gpio = <&msmgpio 79 0x0>;
-			asp01-vcc-supply = <&pm8941_l18>;
-			asp01-lvs1-supply = <&pm8941_lvs1>;
-			asp01,cr_cs_div = <10 12 10 12>;
-			asp01,init_code = <0x5a 0x33 0x40 0x40 0x3c
-							   0x30 0x30 0x33 0x34 0x21
-							   0x04 0x40 0x00 0x10 0x30
-							   0x28 0x50 0x78 0x27 0x20
-							   0x27 0x83 0x3f 0x48 0x20
-							   0x04 0x27 0x00>;
-			qcom,asp01-vcc-voltage-level = <2850000 2850000>;
-			qcom,asp01-vcc-always-on;
+		sx9500-i2c@28 {
+			compatible = "sx9500-i2c";
+			reg = <0x28>;
+			sx9500-i2c,nirq-gpio = <&pm8941_mpps 2 0x0>;
 		};
 	};
 
@@ -369,17 +359,18 @@
 	i2c@f9968000 {
 		status = "okay";
 		mpu9250@68 {
-			compatible = "mpu9250";
+			compatible = "mpu6515";
 			reg = <0x68>;
-			mpu9250,device_rev = <7>;
+			mpu9250,device_rev = <8>;
 			mpu9250,irq_gpio = <&msmgpio 86 0x0>;
+			mpu9250,mag_reset = <&msmgpio 80 0x0>;
 			mpu9250,int_config = <0>;
 			mpu9250,level_shifter = <0>;
 			mpu9250,sec_slave_type = <2>;
-			mpu9250,sec_slave_id = <18>;
+			mpu9250,sec_slave_id = <32>;
 			mpu9250,secondary_i2c_addr = <0x0C>;
 			mpu9250,orientation = <1 2 1 2 1 1 1 1 0>;
-			mpu9250,secondary_orientation = <2 1 1 1 2 1 1 1 2>;
+			mpu9250,secondary_orientation = <2 1 1 1 0 1 1 1 0>;
 			mpu9250,key = <211 22 205 7
 						   217 186 151 55
 			               206 254 35 144
@@ -491,12 +482,6 @@
 				<85 512 40000 320000>,
 				<85 512 40000 480000>,
 				<85 512 40000 800000>;
-	};
-};
-
-&mdss_mdp {
-	dsi_dual_2560p_vid_left: qcom,mdss_dsi_samsung_dual_2560p_video_left {
-		qcom,mdss-pan-bl-ctrl = "bl_ctrl_pwm";
 	};
 };
 
@@ -820,12 +805,12 @@
 	gpio@d300 { /* GPIO 20 */
 		qcom,mode = <1>;		/* QPNP_PIN_MODE_DIG_OUT */
 		qcom,output-type = <0>;		/* QPNP_PIN_OUT_BUF_CMOS */
-		qcom,invert = <0>; 		/* Output low initially */
+		qcom,invert = <0>;		/* Output low initially */
 		qcom,pull = <5>;		/* QPNP_PIN_PULL_NO */
 		qcom,vin-sel = <2>;		/* QPNP_PIN_VIN2 */
-		qcom,out-strength = <2>;	/* QPNP_PIN_OUT_STRENGTH_MED */
+		qcom,out-strength = <3>;	/* QPNP_PIN_OUT_STRENGTH_HIGH */
 		qcom,src-sel = <0>;		/* QPNP_PIN_SEL_FUNC_CONSTANT */
-		qcom,master-en = <1>;
+		qcom,master-en = <1>;		/* Enable GPIO */
 	};
 
 	gpio@d400 { /* GPIO 21 */
@@ -863,6 +848,13 @@
 	};
 
 	gpio@da00 { /* GPIO 27 */
+		qcom,mode = <0>;		/* QPNP_PIN_MODE_DIG_IN */
+		qcom,output-type = <0>;		/* QPNP_PIN_OUT_BUF_CMOS */
+		qcom,pull = <5>;		/* QPNP_PIN_PULL_NO */
+		qcom,vin-sel = <2>; 		/* QPNP_PIN_VIN2 */
+		qcom,out-strength = <3>;	/* QPNP_PIN_OUT_STRENGTH_HIGH */
+		qcom,src-sel = <0>;		/* QPNP_PIN_SEL_FUNC_CONSTANT*/
+		qcom,master-en = <1>;
 	};
 
 	gpio@db00 { /* GPIO 28 */
@@ -942,6 +934,10 @@
 	};
 
 	mpp@a100 { /* MPP 2 */
+		qcom,mode = <0>; /* DIG_IN */
+		qcom,vin-sel = <2>; /* S3A 1.8v */
+		qcom,src-sel = <0>; /* CONSTANT */
+		qcom,master-en = <1>; /* ENABLE MPP */
 	};
 
 	mpp@a200 { /* MPP 3 */
