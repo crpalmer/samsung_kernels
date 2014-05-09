@@ -38,6 +38,10 @@
 #include <mach/mpm.h>
 #include <mach/clk.h>
 #include <mach/rpm-regulator-smd.h>
+#include <linux/mutex.h>
+
+static DEFINE_MUTEX(enable_xo_mutex);
+
 
 enum {
 	MSM_MPM_GIC_IRQ_DOMAIN,
@@ -567,6 +571,8 @@ void msm_mpm_exit_sleep(bool from_idle)
 }
 static void msm_mpm_sys_low_power_modes(bool allow)
 {
+	mutex_lock(&enable_xo_mutex);
+
 	if (allow) {
 		if (xo_enabled) {
 			clk_disable_unprepare(xo_clk);
@@ -582,6 +588,7 @@ static void msm_mpm_sys_low_power_modes(bool allow)
 			xo_enabled = true;
 		}
 	}
+	mutex_unlock(&enable_xo_mutex);
 }
 
 void msm_mpm_suspend_prepare(void)
