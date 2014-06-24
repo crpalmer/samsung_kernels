@@ -294,7 +294,6 @@ int mdss_mdp_perf_calc_pipe(struct mdss_mdp_pipe *pipe,
 			pr_debug("*** Exceptional case : more than 10x Upscale!!!\n");
 			perf->ib_quota = perf->ib_quota * 10;
 			perf->ab_quota = perf->ab_quota * 10;
-			perf->mdp_clk_rate = perf->mdp_clk_rate * 2;
 	}
 	pr_debug("mixer=%d pnum=%d clk_rate=%u bus ab=%u ib=%u\n",
 		 mixer->num, pipe->num, rate, perf->ab_quota, perf->ib_quota);
@@ -377,7 +376,7 @@ static int mdss_mdp_ctl_perf_update(struct mdss_mdp_ctl *ctl)
 	u32 max_clk_rate = 0, total_ab_quota = 0, total_ib_quota = 0;
 
 	struct mdss_mdp_pipe *pipe;
-	int i, need_more_bw = 0, rotate_mode = 0, display_width = 0, display_height = 0;
+	int i, need_more_bw = 0, rotate_mode = 0, display_width = 0, display_height = 0, upscale_ratio = 0;
 
 	if (ctl->mixer_left) {
 		mdss_mdp_perf_mixer_update(ctl->mixer_left, &ab_quota,
@@ -442,6 +441,12 @@ static int mdss_mdp_ctl_perf_update(struct mdss_mdp_ctl *ctl)
 						if (pipe->flags & MDP_ROT_90)
 							rotate_mode = 1;
 					}
+				if((pipe->dst.h == 2133) &&
+					(((pipe->dst.h * 10) / pipe->src.h) >= 33) &&
+					((pipe->dst.w * 10 / pipe->src.w) >= 33)) {
+					upscale_ratio = pipe->dst.w * 10 / pipe->src.w;
+					need_more_bw = 1;
+				}
 			}
 		}
 
@@ -467,7 +472,7 @@ static int mdss_mdp_ctl_perf_update(struct mdss_mdp_ctl *ctl)
 		if (need_more_bw) {
 			if ((display_width % 10) || (display_height % 10)) {
 				if (rotate_mode) {
-					if ((display_width < 360) || (display_height < 360)) {
+					if ((display_width < 500) || (display_height < 500)) {
 						/* add 390% more bw*/
 						total_ab_quota *= (ADDING_BW_ROTATE_MODE * 3);
 						total_ib_quota *= (ADDING_BW_ROTATE_MODE * 3);
@@ -493,6 +498,12 @@ static int mdss_mdp_ctl_perf_update(struct mdss_mdp_ctl *ctl)
 
 				total_ab_quota /= 100;
 				total_ib_quota /= 100;
+			}
+			else {
+				if(upscale_ratio) {
+					total_ab_quota = total_ab_quota * upscale_ratio / 10;
+					total_ib_quota = total_ab_quota * upscale_ratio / 10;
+				}
 			}
 		}
 
