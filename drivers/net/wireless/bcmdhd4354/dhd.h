@@ -857,12 +857,6 @@ extern uint dhd_pktgen_len;
 
 /* optionally set by a module_param_string() */
 #define MOD_PARAM_PATHLEN	2048
-
-#ifdef WRITE_WLANINFO
-extern char fw_path[MOD_PARAM_PATHLEN];
-extern char nv_path[MOD_PARAM_PATHLEN];
-#endif
-
 #define MOD_PARAM_INFOLEN	512
 
 #ifdef SOFTAP

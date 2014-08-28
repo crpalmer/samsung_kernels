@@ -175,6 +175,7 @@ static int edp_power_state;
 
 DEFINE_MUTEX(edp_power_state_chagne);
 DEFINE_MUTEX(edp_event_state_chagne);
+DEFINE_MUTEX(brightness_mutex);
 
 int get_edp_power_state(void)
 {
@@ -510,6 +511,8 @@ void mdss_edp_set_backlight(struct mdss_panel_data *pdata, u32 bl_level)
 		return;
 	}
 
+	mutex_lock(&brightness_mutex);
+
 	bl_max = edp_drv->panel_data.panel_info.bl_max;
 	if (bl_level > bl_max)
 		bl_level = bl_max;
@@ -518,6 +521,7 @@ void mdss_edp_set_backlight(struct mdss_panel_data *pdata, u32 bl_level)
 
 	if (edp_drv->duty_level == duty_level) {
 		pr_err("%s : same duty level..(%d) do not pwm_config..\n", __func__, duty_level);
+		mutex_unlock(&brightness_mutex);
 		return;
 	}
 
@@ -531,12 +535,14 @@ void mdss_edp_set_backlight(struct mdss_panel_data *pdata, u32 bl_level)
 	ret = pwm_config(edp_drv->bl_pwm, duty_period, edp_drv->pwm_period);
 	if (ret) {
 		pr_err("%s: pwm_config() failed err=%d.\n", __func__, ret);
+		mutex_unlock(&brightness_mutex);
 		return;
 	}
 
 	ret = pwm_enable(edp_drv->bl_pwm);
 	if (ret) {
 		pr_err("%s: pwm_enable() failed err=%d\n", __func__, ret);
+		mutex_unlock(&brightness_mutex);
 		return;
 	}
 
@@ -548,6 +554,8 @@ void mdss_edp_set_backlight(struct mdss_panel_data *pdata, u32 bl_level)
 	edp_drv->current_bl = bl_level;
 #endif
 	edp_drv->duty_level = duty_level;
+
+	mutex_unlock(&brightness_mutex);
 
 	pr_info("%s bl_level : %d duty_level : %d duty_period : %d  duty_ratio : %d",
 				__func__, bl_level, duty_level, duty_period,
@@ -1420,6 +1428,7 @@ static int edp_event_thread(void *data)
 #if defined(CONFIG_FB_MSM_EDP_SAMSUNG)
 						edp_power_state = 1;
 						edp_backlight_enable();
+						mdss_edp_set_backlight(&ep->panel_data, ep->current_bl);
 						complete(&edp_power_sync);
 #endif
 					}

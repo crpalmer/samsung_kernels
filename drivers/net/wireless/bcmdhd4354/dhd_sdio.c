@@ -21,7 +21,7 @@
  * software in any way with any other Broadcom software provided under a license
  * other than the GPL, without Broadcom's express prior written consent.
  *
- * $Id: dhd_sdio.c 449169 2014-01-16 11:36:05Z $
+ * $Id: dhd_sdio.c 450840 2014-01-23 06:07:47Z $
  */
 
 #include <typedefs.h>
@@ -301,7 +301,7 @@ typedef struct dhd_bus {
 	bool		alp_only;		/* Don't use HT clock (ALP only) */
 	/* Field to decide if rx of control frames happen in rxbuf or lb-pool */
 	bool		usebufpool;
-	uint32		txinrx_thres;	/* num of in-queued pkts */
+	int32		txinrx_thres;	/* num of in-queued pkts */
 
 #ifdef SDTEST
 	/* external loopback */
@@ -2648,7 +2648,7 @@ const bcm_iovar_t dhdsdio_iovars[] = {
 #endif
 	{"txglomsize", IOV_TXGLOMSIZE, 0, IOVT_UINT32, 0 },
 	{"fw_hang_report", IOV_HANGREPORT, 0, IOVT_BOOL, 0 },
-	{"txinrx_thres", IOV_TXINRX_THRES, 0, IOVT_UINT32, 0 },
+	{"txinrx_thres", IOV_TXINRX_THRES, 0, IOVT_INT32, 0 },
 	{NULL, 0, 0, 0, 0 }
 };
 
@@ -3877,14 +3877,14 @@ dhdsdio_doiovar(dhd_bus_t *bus, const bcm_iovar_t *vi, uint32 actionid, const ch
 		break;
 
 	case IOV_GVAL(IOV_TXINRX_THRES):
-		int_val = (int32)bus->txinrx_thres;
+		int_val = bus->txinrx_thres;
 		bcopy(&int_val, arg, val_size);
 		break;
 	case IOV_SVAL(IOV_TXINRX_THRES):
 		if (int_val < 0) {
 			bcmerror = BCME_BADARG;
 		} else {
-			bus->txinrx_thres = (uint)int_val;
+			bus->txinrx_thres = int_val;
 		}
 		break;
 
@@ -7177,9 +7177,12 @@ dhdsdio_probe(uint16 venid, uint16 devid, uint16 bus_no, uint16 slot,
 
 #if defined(CUSTOMER_HW4) && defined(BCMHOST_XTAL_PU_TIME_MOD)
 	bcmsdh_reg_write(bus->sdh, 0x18000620, 2, 11);
+#ifdef BCM4330_CHIP
+	bcmsdh_reg_write(bus->sdh, 0x18000628, 4, 0x0000F801);
+#else
 	bcmsdh_reg_write(bus->sdh, 0x18000628, 4, 0x00F80001);
-#endif
-
+#endif /* BCM4330_CHIP */
+#endif /* defined(CUSTOMER_HW4) && defined(BCMHOST_XTAL_PU_TIME_MOD */
 #if defined(MULTIPLE_SUPPLICANT)
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 25))
 	mutex_unlock(&_dhd_sdio_mutex_lock_);

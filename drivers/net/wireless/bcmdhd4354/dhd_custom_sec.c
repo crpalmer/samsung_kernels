@@ -183,6 +183,7 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"DZ", "GB", 6},
 	{"AS", "AS", 12},
 	{"AI", "AI", 1},
+	{"AF", "AD", 0},
 	{"AG", "AG", 2},
 	{"AR", "AR", 21},
 	{"AW", "AW", 2},
@@ -230,6 +231,7 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"IT", "IT", 4},
 	{"JP", "JP", 45},
 	{"JO", "JO", 3},
+	{"KE", "SA", 0},
 	{"KW", "KW", 5},
 	{"LA", "LA", 2},
 	{"LV", "LV", 4},
@@ -297,8 +299,6 @@ const struct cntry_locales_custom translate_custom_table[] = {
 	{"UA", "UA", 8},
 	{"GT", "GT", 1},
 	{"FR", "FR", 5},
-	{"AF", "AD", 0},
-	{"KE", "SA", 0},
 	{"MN", "MN", 1},
 	{"NI", "NI", 2},
 #endif /* default ccode/regrev */
@@ -392,8 +392,8 @@ start_readmac:
 			ret = fp->f_op->write(fp, (const char *)macbuffer,
 			sizeof(macbuffer), &fp->f_pos);
 			if (ret < 0)
-				DHD_ERROR(("[WIFI]MAC address [%s] Failed to write into File: %s\n",
-					macbuffer, filepath_efs));
+				DHD_ERROR(("[WIFI_SEC] MAC address [%s] Failed to write into File:"
+					" %s\n", macbuffer, filepath_efs));
 			else
 				DHD_ERROR(("[WIFI]MAC address [%s] written into File: %s\n",
 					macbuffer, filepath_efs));
@@ -425,7 +425,8 @@ start_readmac:
 			(unsigned int *)&(mac->octet[2]), (unsigned int *)&(mac->octet[3]),
 			(unsigned int *)&(mac->octet[4]), (unsigned int *)&(mac->octet[5]));
 	else
-		DHD_ERROR(("dhd_bus_start: Reading from the '%s' returns 0 bytes\n", filepath_efs));
+		DHD_ERROR(("[WIFI_SEC] dhd_bus_start: Reading from the '%s' returns 0 bytes\n",
+			filepath_efs));
 
 	if (fp)
 		filp_close(fp, NULL);
@@ -1306,7 +1307,8 @@ void sec_control_pm(dhd_pub_t *dhd, uint *power_mode)
 			bcm_mkiovar("lpc", (char *)&lpc, 4, iovbuf, sizeof(iovbuf));
 			if ((ret = dhd_wl_ioctl_cmd(dhd, WLC_SET_VAR, iovbuf,
 				sizeof(iovbuf), TRUE, 0)) < 0) {
-				DHD_ERROR(("%s Set lpc failed  %d\n", __FUNCTION__, ret));
+				DHD_ERROR(("[WIFI_SEC] %s: Set lpc failed  %d\n",
+				__FUNCTION__, ret));
 			}
 #endif /* DHD_ENABLE_LPC */
 		} else {
@@ -1492,32 +1494,32 @@ int sec_get_param(dhd_pub_t *dhd, int mode)
 	return val;
 }
 #endif /* USE_WFA_CERT_CONF */
-
 #ifdef WRITE_WLANINFO
-#define Firm_prefix "Firm_ver:"
-#define DHD_prefix "DHD_ver:"
-#define Nv_prefix "Nv_info:"
-#define max_len(a,b) (sizeof(a)/2 - strlen(b) - 3)
-#define tstr_len(a,b) (strlen(a) + strlen(b) + 3)
+#define FIRM_PREFIX "Firm_ver:"
+#define DHD_PREFIX "DHD_ver:"
+#define NV_PREFIX "Nv_info:"
+#define max_len(a, b) ((sizeof(a)/(2)) - (strlen(b)) - (3))
+#define tstr_len(a, b) ((strlen(a)) + (strlen(b)) + (3))
 
 char version_info[512];
 char version_old_info[512];
 
-int write_filesystem(struct file* file, unsigned long long offset, unsigned char* data, unsigned int size)
+int write_filesystem(struct file *file, unsigned long long offset,
+	unsigned char* data, unsigned int size)
 {
-    mm_segment_t oldfs;
-    int ret;
+	mm_segment_t oldfs;
+	int ret;
 
-    oldfs = get_fs();
-    set_fs(get_ds());
+	oldfs = get_fs();
+	set_fs(get_ds());
 
-    ret = vfs_write(file, data, size, &offset);
+	ret = vfs_write(file, data, size, &offset);
 
-    set_fs(oldfs);
-    return ret;
+	set_fs(oldfs);
+	return ret;
 }
 
-uint32 sec_save_wlinfo(char* firm_ver, char* dhd_ver, char* nvram_p)
+uint32 sec_save_wlinfo(char *firm_ver, char *dhd_ver, char *nvram_p)
 {
 	struct file *fp = NULL;
 	struct file *nvfp = NULL;
@@ -1533,13 +1535,13 @@ uint32 sec_save_wlinfo(char* firm_ver, char* dhd_ver, char* nvram_p)
 	DHD_INFO(("[WIFI] dhd driver version : %s\n", dhd_ver));
 	DHD_INFO(("[WIFI] nvram path : %s\n", nvram_p));
 
-	memset(version_info,0,sizeof(version_info));
+	memset(version_info, 0, sizeof(version_info));
 
-	if(strlen(dhd_ver)){
-		min_len = min(strlen(dhd_ver) ,  max_len(temp_buf, DHD_prefix));
-		min_len += strlen(DHD_prefix) + 3;
+	if (strlen(dhd_ver)) {
+		min_len = min(strlen(dhd_ver), max_len(temp_buf, DHD_PREFIX));
+		min_len += strlen(DHD_PREFIX) + 3;
 		DHD_INFO(("[WIFI] DHD ver length : %d\n", min_len));
-		snprintf(version_info+str_len, min_len, DHD_prefix " %s\n",dhd_ver);
+		snprintf(version_info+str_len, min_len, DHD_PREFIX " %s\n", dhd_ver);
 		str_len = strlen(version_info);
 
 		DHD_INFO(("[WIFI] version_info len : %d\n", str_len));
@@ -1548,11 +1550,11 @@ uint32 sec_save_wlinfo(char* firm_ver, char* dhd_ver, char* nvram_p)
 		DHD_ERROR(("[WIFI] Driver version is missing.\n"));
 	}
 
-	if(strlen(firm_ver)){
-		min_len = min(strlen(firm_ver) ,  max_len(temp_buf, Firm_prefix));
-		min_len += strlen(Firm_prefix) + 3;
+	if (strlen(firm_ver)) {
+		min_len = min(strlen(firm_ver), max_len(temp_buf, FIRM_PREFIX));
+		min_len += strlen(FIRM_PREFIX) + 3;
 		DHD_INFO(("[WIFI] firmware ver length : %d\n", min_len));
-		snprintf(version_info+str_len, min_len, Firm_prefix " %s\n",firm_ver);
+		snprintf(version_info+str_len, min_len, FIRM_PREFIX " %s\n", firm_ver);
 		str_len = strlen(version_info);
 
 		DHD_INFO(("[WIFI] version_info len : %d\n", str_len));
@@ -1561,47 +1563,49 @@ uint32 sec_save_wlinfo(char* firm_ver, char* dhd_ver, char* nvram_p)
 		DHD_ERROR(("[WIFI] Firmware version is missing.\n"));
 	}
 
-	if(nvram_p){
-		memset(temp_buf,0,sizeof(temp_buf));
+	if (nvram_p) {
+		memset(temp_buf, 0, sizeof(temp_buf));
 		nvfp = filp_open(nvram_p, O_RDONLY, 0);
 		if (IS_ERR(nvfp) || (nvfp == NULL)) {
-			DHD_ERROR(("[WIFI] %s: Nvarm File open failed.\n", __FUNCTION__));
+			DHD_ERROR(("[WIFI_SEC] %s: Nvarm File open failed.\n", __FUNCTION__));
 			return -1;
 		} else {
 			ret = kernel_read(nvfp, nvfp->f_pos, temp_buf, sizeof(temp_buf));
 			filp_close(nvfp, NULL);
 		}
 
-		if(strlen(temp_buf)){
+		if (strlen(temp_buf)) {
 			nvram_buf = temp_buf;
 			bcmstrtok(&nvram_buf, "\n", 0);
-			DHD_INFO(("[WIFI] nvram tolkening : %s(%d) \n", temp_buf, strlen(temp_buf)));
-			snprintf(version_info+str_len, tstr_len(temp_buf, Nv_prefix), Nv_prefix " %s\n", temp_buf);
+			DHD_INFO(("[WIFI_SEC] nvram tolkening : %s(%d) \n",
+				temp_buf, strlen(temp_buf)));
+			snprintf(version_info+str_len, tstr_len(temp_buf, NV_PREFIX),
+				NV_PREFIX " %s\n", temp_buf);
 			str_len = strlen(version_info);
-			DHD_INFO(("[WIFI] version_info : %s\n", version_info));
-			DHD_INFO(("[WIFI] version_info len : %d, nvram len : %d\n", str_len, strlen(temp_buf)));
-		}else{
-			DHD_ERROR(("[WIFI] No info is missing.\n"));
+			DHD_INFO(("[WIFI_SEC] NVRAM version_info : %s\n", version_info));
+			DHD_INFO(("[WIFI_SEC] NVRAM version_info len : %d, nvram len : %d\n",
+				str_len, strlen(temp_buf)));
+		} else {
+			DHD_ERROR(("[WIFI_SEC] NVRAM info is missing.\n"));
 		}
 	}else{
 		DHD_ERROR(("[WIFI] No nvram path\n"));
 	}
 
-	DHD_INFO(("[WIFI] version_info : %s, strlen : %d\n", version_info,strlen(version_info)));
+	DHD_INFO(("[WIFI_SEC] version_info : %s, strlen : %d\n",
+		version_info, strlen(version_info)));
 
 	fp = filp_open(filepath, O_RDONLY, 0);
-	if (fp != NULL) {
-		if (IS_ERR(fp) || (fp == NULL)) {
-			DHD_INFO(("[WIFI] %s: File open failed.\n", __FUNCTION__));
-		} else {
-			memset(version_old_info, 0, sizeof(version_old_info));
-			ret = kernel_read(fp, fp->f_pos, version_old_info, sizeof(version_info));
-			filp_close(fp, NULL);
-			DHD_INFO(("[WIFI] kernel_read ret : %d.\n", ret));
-			if(strcmp(version_info,version_old_info) == 0){
-				DHD_ERROR(("[WIFI] %s: : already saved.\n", __FUNCTION__));
-				return 0;
-			}
+	if (IS_ERR(fp) || (fp == NULL)) {
+		DHD_ERROR(("[WIFI_SEC] %s: .wifiver.info File open failed.\n", __FUNCTION__));
+	} else {
+		memset(version_old_info, 0, sizeof(version_old_info));
+		ret = kernel_read(fp, fp->f_pos, version_old_info, sizeof(version_info));
+		filp_close(fp, NULL);
+		DHD_INFO(("[WIFI_SEC] kernel_read ret : %d.\n", ret));
+		if (strcmp(version_info, version_old_info) == 0) {
+			DHD_ERROR(("[WIFI_SEC] .wifiver.info already saved.\n"));
+			return 0;
 		}
 	}
 
@@ -1611,12 +1615,11 @@ uint32 sec_save_wlinfo(char* firm_ver, char* dhd_ver, char* nvram_p)
 			__FUNCTION__));
 	} else {
 		ret = write_filesystem(fp, fp->f_pos, version_info, sizeof(version_info));
-		DHD_INFO(("[WIFI] sec_save_wlinfo done. ret : %d\n",ret));
-		DHD_ERROR(("[WIFI] save .wifiver.info file.\n"));
+		DHD_INFO(("[WIFI_SEC] sec_save_wlinfo done. ret : %d\n", ret));
+		DHD_ERROR(("[WIFI_SEC] save .wifiver.info file.\n"));
 		filp_close(fp, NULL);
 	}
 	return ret;
 }
 #endif /* WRITE_WLANINFO */
-
 #endif /* CUSTOMER_HW4 */
