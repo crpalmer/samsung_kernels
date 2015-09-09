@@ -47,6 +47,7 @@ struct max77803_charger_data {
 	/* wakelock */
 	struct wake_lock recovery_wake_lock;
 	struct wake_lock wpc_wake_lock;
+	struct wake_lock chgin_wake_lock;
 
 	unsigned int	is_charging;
 	unsigned int	charging_type;
@@ -94,6 +95,8 @@ struct max77803_charger_data {
 #endif
 	int		soft_reg_recovery_cnt;
 
+	bool is_mdock;
+	bool is_otg;
 	int pmic_ver;
 	int input_curr_limit_step;
 	int wpc_input_curr_limit_step;
@@ -355,10 +358,15 @@ static void max77803_set_topoff_current(struct max77803_charger_data *charger,
 	else
 		reg_data = 0x00;
 
+#if 0
 	/* the unit of timeout is second*/
 	timeout = timeout / 60;
 	reg_data |= ((timeout / 10) << 3);
-	pr_info("%s: reg_data(0x%02x), topoff(%d)\n", __func__, reg_data, cur);
+#else
+	/* set top off timer to max(70 min): cut off will be done by kernel timer */
+	reg_data |= (0x7 << 3);
+#endif
+	pr_info("%s: reg_data(0x%02x), topoff(%d), back-charging time(%d sec)\n", __func__, reg_data, cur, timeout);
 
 	max77803_write_reg(charger->max77803->i2c,
 		MAX77803_CHG_REG_CHG_CNFG_03, reg_data);
@@ -753,10 +761,13 @@ static void max77803_charger_initialize(struct max77803_charger_data *charger)
 	 * charge current 466mA(default)
 	 * (max77888: 480mA(default))
 	 * otg current limit 900mA
+	 * (max77888: 350mA/1250mA)
 	 */
 	max77803_read_reg(charger->max77803->i2c,
 			MAX77803_CHG_REG_CHG_CNFG_02, &reg_data);
+#if !defined(CONFIG_CHAGALL)/* 350mA for Chagall */
 	reg_data |= (1 << 7);
+#endif
 	max77803_write_reg(charger->max77803->i2c,
 		MAX77803_CHG_REG_CHG_CNFG_02, reg_data);
 
@@ -830,7 +841,11 @@ static int sec_chg_get_property(struct power_supply *psy,
 		val->intval = max77803_get_health_state(charger);
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
+#if defined(max77888_charger)
+		val->intval = max77803_get_input_current(charger);
+#else
 		val->intval = charger->charging_current_max;
+#endif
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_AVG:
 		val->intval = charger->charging_current;
@@ -868,6 +883,9 @@ static int sec_chg_set_property(struct power_supply *psy,
 		POWER_SUPPLY_TYPE_USB].fast_charging_current;
 	const int wpc_charging_current = charger->pdata->charging_current[
 		POWER_SUPPLY_TYPE_WPC].input_current_limit;
+	u8 en_chg_cnfg_00;
+	u8 dis_chg_cnfg_00;
+	u8 mask_chg_cnfg_00;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
@@ -877,6 +895,49 @@ static int sec_chg_set_property(struct power_supply *psy,
 	case POWER_SUPPLY_PROP_ONLINE:
 		/* check and unlock */
 		check_charger_unlock_state(charger);
+
+		if (val->intval == POWER_SUPPLY_TYPE_POWER_SHARING) {
+			psy_do_property("ps", get,
+				POWER_SUPPLY_PROP_STATUS, value);
+#if defined (max77888_charger)
+			mask_chg_cnfg_00 = CHG_CNFG_00_CHG_MASK
+				| CHG_CNFG_00_OTG_MASK
+				| CHG_CNFG_00_BUCK_MASK
+				| CHG_CNFG_00_BOOST_MASK
+				| CHG_CNFG_00_DIS_MUIC_CTRL_MASK;
+			dis_chg_cnfg_00 = CHG_CNFG_00_BUCK_MASK;
+#else
+			mask_chg_cnfg_00 = CHG_CNFG_00_OTG_MASK
+				| CHG_CNFG_00_BOOST_MASK
+				| CHG_CNFG_00_DIS_MUIC_CTRL_MASK;
+			dis_chg_cnfg_00 = 0;
+#endif
+			en_chg_cnfg_00 = CHG_CNFG_00_OTG_MASK
+				| CHG_CNFG_00_BOOST_MASK
+				| CHG_CNFG_00_DIS_MUIC_CTRL_MASK;
+
+			if (value.intval) {
+#if defined(CONFIG_CHAGALL)
+				max77803_update_reg(charger->max77803->i2c, MAX77803_CHG_REG_CHG_CNFG_02,
+					(1 << 7), (1 << 7));
+#endif
+				max77803_update_reg(charger->max77803->i2c, MAX77803_CHG_REG_CHG_CNFG_00,
+					en_chg_cnfg_00, mask_chg_cnfg_00);
+
+				pr_info("%s: ps enable\n", __func__);
+			} else {
+#if defined(CONFIG_CHAGALL)
+				max77803_update_reg(charger->max77803->i2c, MAX77803_CHG_REG_CHG_CNFG_02,
+					0, (1 << 7));
+#endif
+				max77803_update_reg(charger->max77803->i2c, MAX77803_CHG_REG_CHG_CNFG_00,
+					dis_chg_cnfg_00, mask_chg_cnfg_00);
+
+				pr_info("%s: ps disable\n", __func__);
+			}
+			break;
+		}
+
 		charger->cable_type = val->intval;
 		if (val->intval == POWER_SUPPLY_TYPE_OTG)
 			break;
@@ -886,6 +947,8 @@ static int sec_chg_set_property(struct power_supply *psy,
 		if (val->intval == POWER_SUPPLY_TYPE_BATTERY) {
 			charger->is_charging = false;
 			charger->soft_reg_recovery_cnt = 0;
+			charger->is_mdock = false;
+			charger->is_otg = false;
 			set_charging_current = 0;
 			set_charging_current_max =
 				charger->pdata->charging_current[
@@ -902,7 +965,40 @@ static int sec_chg_set_property(struct power_supply *psy,
 				}
 			}
 		} else {
+			pr_info("%s: cable type = %d\n", __func__, charger->cable_type);
 			charger->is_charging = true;
+
+			if ((charger->cable_type == POWER_SUPPLY_TYPE_USB)
+				&& (charger->pdata->is_hc_usb)) {
+				pr_info("%s: high current usb setting\n", __func__);
+
+				charger->charging_current = charger->pdata->charging_current[
+					POWER_SUPPLY_TYPE_MAINS].fast_charging_current;
+				charger->charging_current_max =	charger->pdata->charging_current[
+						POWER_SUPPLY_TYPE_MAINS].input_current_limit;
+			}
+
+			if (charger->cable_type == POWER_SUPPLY_TYPE_SMART_NOTG)
+				charger->is_otg = false;
+			else if (charger->cable_type == POWER_SUPPLY_TYPE_SMART_OTG)
+				charger->is_otg = true;
+			if (charger->cable_type == POWER_SUPPLY_TYPE_MDOCK_TA)
+				charger->is_mdock = true;
+
+			if(charger->is_mdock){
+				if(charger->is_otg){
+					charger->charging_current = charger->pdata->charging_current[
+					POWER_SUPPLY_TYPE_MDOCK_TA].fast_charging_current - 300;
+					charger->charging_current_max = charger->pdata->charging_current[
+					POWER_SUPPLY_TYPE_MDOCK_TA].input_current_limit - 300;
+				}else{
+					charger->charging_current = charger->pdata->charging_current[
+					POWER_SUPPLY_TYPE_MDOCK_TA].fast_charging_current;
+					charger->charging_current_max = charger->pdata->charging_current[
+					POWER_SUPPLY_TYPE_MDOCK_TA].input_current_limit;
+				}
+			}
+
 			/* decrease the charging current according to siop level */
 			set_charging_current =
 				charger->charging_current * charger->siop_level / 100;
@@ -1221,22 +1317,28 @@ static irqreturn_t max77803_bypass_irq(int irq, void *data)
 	/* check and unlock */
 	check_charger_unlock_state(chg_data);
 
+	/* Due to timing issue, 0xB5 reg should be read at first to detect overcurrent limit.
+	*  If 0xB5's read after 0XB3, 0xB4, it's value is 0x00 even for the overcurrent limit case.
+	*/
+	max77803_read_reg(chg_data->max77803->i2c,
+				MAX77803_CHG_REG_CHG_DTLS_02,
+				&dtls_02);
+	pr_info("%s: CHG_DTLS_02(0xb5) = 0x%x\n", __func__, dtls_02);
+
 	max77803_read_reg(chg_data->max77803->i2c,
 				MAX77803_CHG_REG_CHG_DTLS_00,
 				&chgin_dtls);
 	max77803_read_reg(chg_data->max77803->i2c,
-					MAX77803_CHG_REG_CHG_DTLS_01, &chg_dtls);
-		chgin_dtls = ((chgin_dtls & MAX77803_CHGIN_DTLS) >>
+				MAX77803_CHG_REG_CHG_DTLS_01, &chg_dtls);
+	chgin_dtls = ((chgin_dtls & MAX77803_CHGIN_DTLS) >>
 				MAX77803_CHGIN_DTLS_SHIFT);
-		chg_dtls = ((chg_dtls & MAX77803_CHG_DTLS) >>
+	chg_dtls = ((chg_dtls & MAX77803_CHG_DTLS) >>
 				MAX77803_CHG_DTLS_SHIFT);
-	max77803_read_reg(chg_data->max77803->i2c,
-				MAX77803_CHG_REG_CHG_DTLS_02,
-				&dtls_02);
 
 	byp_dtls = ((dtls_02 & MAX77803_BYP_DTLS) >>
 				MAX77803_BYP_DTLS_SHIFT);
-	pr_info("%s: BYP_DTLS(0x%02x)\n", __func__, byp_dtls);
+	pr_info("%s: BYP_DTLS(0x%02x), chgin_dtls(0x%02x), chg_dtls(0x%02x)\n",
+		__func__, byp_dtls, chgin_dtls, chg_dtls);
 	vbus_state = max77803_get_vbus_state(chg_data);
 
 	if (byp_dtls & 0x1) {
@@ -1273,6 +1375,7 @@ static void max77803_chgin_isr_work(struct work_struct *work)
 	union power_supply_propval value;
 	int stable_count = 0;
 
+	wake_lock(&charger->chgin_wake_lock);
 	max77803_read_reg(charger->max77803->i2c,
 		MAX77803_CHG_REG_CHG_INT_MASK, &reg_data);
 	reg_data |= (1 << 6);
@@ -1339,6 +1442,7 @@ static void max77803_chgin_isr_work(struct work_struct *work)
 	reg_data &= ~(1 << 6);
 	max77803_write_reg(charger->max77803->i2c,
 		MAX77803_CHG_REG_CHG_INT_MASK, reg_data);
+	wake_unlock(&charger->chgin_wake_lock);
 }
 
 static irqreturn_t max77803_chgin_irq(int irq, void *data)
@@ -1436,6 +1540,8 @@ static __devinit int max77803_charger_probe(struct platform_device *pdev)
 		pr_err("%s: Fail to Create Workqueue\n", __func__);
 		goto err_free;
 	}
+	wake_lock_init(&charger->chgin_wake_lock, WAKE_LOCK_SUSPEND,
+            "charger-chgin");
 	INIT_WORK(&charger->chgin_work, max77803_chgin_isr_work);
 	INIT_DELAYED_WORK(&charger->chgin_init_work, max77803_chgin_init_work);
 	wake_lock_init(&charger->recovery_wake_lock, WAKE_LOCK_SUSPEND,

@@ -55,6 +55,9 @@ static struct switch_dev switch_dock = {
 #ifdef CONFIG_MACH_JA
 #include <linux/i2c/touchkey_i2c.h>
 #endif
+#ifdef CONFIG_KLIMT
+#include <linux/i2c/touchkey_i2c.h>
+#endif
 
 #ifdef CONFIG_TOUCHSCREEN_SYNAPTICS_I2C_RMI
 #include <linux/i2c/synaptics_rmi.h>
@@ -62,9 +65,11 @@ static struct switch_dev switch_dock = {
 #ifdef CONFIG_TOUCHSCREEN_SYNAPTICS_DSX_I2C
 #include <linux/i2c/synaptics_rmi.h>
 #endif
-
 #ifdef CONFIG_TOUCHSCREEN_ATMEL_MXTS
 #include <linux/i2c/mxts.h>
+#endif
+#ifdef CONFIG_TOUCHSCREEN_ATMEL_MXT1664T
+#include <linux/i2c/mxtt.h>
 #endif
 
 struct device *switch_dev;
@@ -244,10 +249,11 @@ int current_cable_type = POWER_SUPPLY_TYPE_BATTERY;
 int max77803_muic_charger_cb(enum cable_type_muic cable_type)
 {
 	struct power_supply *psy = power_supply_get_by_name("battery");
+	struct power_supply *psy_p = power_supply_get_by_name("ps");
 	union power_supply_propval value;
 	static enum cable_type_muic previous_cable_type = CABLE_TYPE_NONE_MUIC;
 
-	pr_info("[BATT] CB enabled %d, prev_cable_type(%d)\n", cable_type, previous_cable_type);
+	pr_info("[BATT] CB enabled(%d), prev_cable(%d)\n", cable_type, previous_cable_type);
 
 	/* others setting */
 	switch (cable_type) {
@@ -256,6 +262,7 @@ int max77803_muic_charger_cb(enum cable_type_muic cable_type)
 	case CABLE_TYPE_JIG_UART_OFF_MUIC:
 	case CABLE_TYPE_MHL_MUIC:
 	case CABLE_TYPE_DESKDOCK_MUIC:
+	case CABLE_TYPE_PS_CABLE_MUIC:
 		is_cable_attached = false;
 		break;
 	case CABLE_TYPE_USB_MUIC:
@@ -276,6 +283,8 @@ int max77803_muic_charger_cb(enum cable_type_muic cable_type)
 	case CABLE_TYPE_AUDIODOCK_MUIC:
 	case CABLE_TYPE_JIG_UART_OFF_VB_MUIC:
 	case CABLE_TYPE_CDP_MUIC:
+	case CABLE_TYPE_MMDOCK_MUIC:
+	case CABLE_TYPE_UNSUPPORTED_ID_VB_MUIC:
 		is_cable_attached = true;
 		break;
 	default:
@@ -291,19 +300,22 @@ int max77803_muic_charger_cb(enum cable_type_muic cable_type)
 #endif
 	synaptics_tsp_charger_infom(cable_type);
 #elif defined(CONFIG_V1A) || defined(CONFIG_V2A) \
-		|| defined(CONFIG_N1A) || defined(CONFIG_N2A) || defined(CONFIG_CHAGALL)
+		|| defined(CONFIG_N1A) || defined(CONFIG_N2A)\
+		|| defined(CONFIG_KLIMT)
 	tsp_charger_infom(is_cable_attached);
 #endif
 #if defined(CONFIG_MACH_JA)
+	touchkey_charger_infom(is_cable_attached);
+#endif
+#if defined(CONFIG_KLIMT) && defined(TK_INFORM_CHARGER)
 	touchkey_charger_infom(is_cable_attached);
 #endif
 
 	/*  charger setting */
 	if (previous_cable_type == cable_type) {
 		pr_info("%s: SKIP cable setting\n", __func__);
-		goto skip;
+		goto skip_cable_setting;
 	}
-	previous_cable_type = cable_type;
 
 	switch (cable_type) {
 	case CABLE_TYPE_NONE_MUIC:
@@ -340,6 +352,7 @@ int max77803_muic_charger_cb(enum cable_type_muic cable_type)
 	case CABLE_TYPE_DESKDOCK_TA_MUIC:
 	case CABLE_TYPE_SMARTDOCK_MUIC:
 	case CABLE_TYPE_SMARTDOCK_TA_MUIC:
+	case CABLE_TYPE_UNSUPPORTED_ID_VB_MUIC:
 		current_cable_type = POWER_SUPPLY_TYPE_MAINS;
 		break;
 	case CABLE_TYPE_AUDIODOCK_MUIC:
@@ -351,19 +364,35 @@ int max77803_muic_charger_cb(enum cable_type_muic cable_type)
 	case CABLE_TYPE_LANHUB_MUIC:
 		current_cable_type = POWER_SUPPLY_TYPE_LAN_HUB;
 		break;
+	case CABLE_TYPE_PS_CABLE_MUIC:
+		current_cable_type = POWER_SUPPLY_TYPE_POWER_SHARING;
+		break;
+	case CABLE_TYPE_MMDOCK_MUIC:
+		return 0;
 	default:
 		pr_err("%s: invalid type for charger:%d\n",
 			__func__, cable_type);
 		goto skip;
 	}
 
-	if (!psy || !psy->set_property)
-		pr_err("%s: fail to get battery psy\n", __func__);
-	else {
-		value.intval = current_cable_type<<ONLINE_TYPE_MAIN_SHIFT;
-		psy->set_property(psy, POWER_SUPPLY_PROP_ONLINE, &value);
+	if (!psy || !psy->set_property || !psy_p || !psy_p->set_property) {
+		pr_err("%s: fail to get battery/ps psy\n", __func__);
+	} else {
+		if (current_cable_type == POWER_SUPPLY_TYPE_POWER_SHARING) {
+			value.intval = current_cable_type;
+			psy_p->set_property(psy_p, POWER_SUPPLY_PROP_ONLINE, &value);
+		} else {
+			if (previous_cable_type == CABLE_TYPE_PS_CABLE_MUIC) {
+				value.intval = current_cable_type;
+				psy_p->set_property(psy_p, POWER_SUPPLY_PROP_ONLINE, &value);
+			}
+			value.intval = current_cable_type<<ONLINE_TYPE_MAIN_SHIFT;
+			psy->set_property(psy, POWER_SUPPLY_PROP_ONLINE, &value);
+		}
 	}
 skip:
+	previous_cable_type = cable_type;
+skip_cable_setting:
 #ifdef CONFIG_JACK_MON
 	jack_event_handler("charger", is_cable_attached);
 #endif
@@ -425,7 +454,7 @@ void max77803_muic_usb_cb(u8 usb_mode)
 #ifdef CONFIG_HA_3G
 		if(system_rev >= 6)
 			usb30_redriver_en(1);
-#elif defined(CONFIG_V1A) || defined(CONFIG_V2A) || defined(CONFIG_CHAGALL)
+#elif defined(CONFIG_V1A) || defined(CONFIG_V2A)
 		usb30_redriver_en(1);
 #endif
 		max77803_set_vbus_state(USB_CABLE_ATTACHED);
@@ -443,7 +472,7 @@ void max77803_muic_usb_cb(u8 usb_mode)
 #ifdef CONFIG_HA_3G
 		if(system_rev >= 6)
 			usb30_redriver_en(0);
-#elif defined(CONFIG_V1A) || defined(CONFIG_V2A) || defined(CONFIG_CHAGALL)
+#elif defined(CONFIG_V1A) || defined(CONFIG_V2A)
 		usb30_redriver_en(0);
 #endif
 		max77803_set_vbus_state(USB_CABLE_DETACHED);
@@ -471,6 +500,13 @@ void max77803_muic_usb_cb(u8 usb_mode)
 	} else if (usb_mode == USB_POWERED_HOST_ATTACHED) {
 #ifdef CONFIG_USB_HOST_NOTIFY
 		host_noti_pdata->powered_booster(1);
+
+		if (cable_type == CABLE_TYPE_MMDOCK_MUIC) {
+			enable_ovc(1);
+			host_state_notify(&host_noti_pdata->ndev,
+				NOTIFY_HOST_NONE);
+		}
+
 		if (cable_type == CABLE_TYPE_LANHUB_MUIC)
 		{
 			host_noti_pdata->ndev.mode = NOTIFY_HOST_MODE;
@@ -486,7 +522,12 @@ void max77803_muic_usb_cb(u8 usb_mode)
 		max77803_check_id_state(1);
 #ifdef CONFIG_USB_HOST_NOTIFY
 		host_noti_pdata->powered_booster(0);
-		if (cable_type == CABLE_TYPE_LANHUB_MUIC)
+
+		if (cable_type == CABLE_TYPE_MMDOCK_MUIC) {
+			enable_ovc(0);
+		}
+
+		if (host_noti_pdata->ndev.mode == NOTIFY_HOST_MODE)
 		{
 			host_noti_pdata->ndev.mode = NOTIFY_NONE_MODE;
 			if (host_noti_pdata->usbhostd_stop)

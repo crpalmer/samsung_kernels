@@ -421,7 +421,7 @@ static ssize_t raw_data_logging_store(struct device *dev,
 
 	if (dEnable) {
 		ssp_dbg("[SSP]: %s - add %u, New = %dns\n",
-			 __func__, 1 << GEOMAGNETIC_SENSOR, SENSOR_NS_DELAY_FASTEST);
+			 __func__, 1 << GEOMAGNETIC_SENSOR, dMsDelay);
 
 		iRet = send_instruction(data, GET_LOGGING, GEOMAGNETIC_SENSOR, uBuf, 4);
 		if (iRet == SUCCESS) {

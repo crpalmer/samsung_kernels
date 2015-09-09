@@ -2622,7 +2622,7 @@ static struct clk exynos5420_init_clocks_off[] = {
 		.ctrlbit	= (1 << 28),
 	}, {
 		.name		= "g3d",
-#ifdef CONFIG_MALI_T6XX
+#if defined(CONFIG_MALI_T6XX) || defined(CONFIG_MALI_MIDGARD_WK04)
 		.devname	= "mali.0",
 #endif
 		.enable		= exynos5_clk_ip_g3d_ctrl,
@@ -2700,10 +2700,6 @@ static struct clk exynos5420_init_clocks_off[] = {
 		.name		= "ppmu.isp0",
 		.enable		= exynos5_clk_ip_isp0_ctrl,
 		.ctrlbit	= (0x3 << 20),
-	}, {
-		.name		= "bts.gscl0",
-		.enable		= exynos5_clk_ip_gscl0_ctrl,
-		.ctrlbit	= (0x3 << 28),
 	}, {
 		.name		= "ppmu.gscl0",
 		.enable		= exynos5_clk_ip_gscl0_ctrl,
@@ -2895,7 +2891,7 @@ static struct clk exynos5420_init_clocks_off[] = {
 #endif
 		.parent		= &exynos5420_aclk_300_gscl.clk,
 		.enable		= exynos5_clk_ip_gscl0_ctrl,
-		.ctrlbit	= ((1 << 28) | (1 << 14) | (1 << 0)),
+		.ctrlbit	= ((1 << 14) | (1 << 0)),
 	}, {
 		.name		= "gscl",
 #ifdef CONFIG_EXYNOS5_DEV_GSC
@@ -2903,7 +2899,7 @@ static struct clk exynos5420_init_clocks_off[] = {
 #endif
 		.parent		= &exynos5420_aclk_300_gscl.clk,
 		.enable		= exynos5_clk_ip_gscl0_ctrl,
-		.ctrlbit	= ((1 << 29) | (1 << 15) | (1 << 1)),
+		.ctrlbit	= ((1 << 15) | (1 << 1)),
 	}, {
 		.name		= "gscl_flite0",
 		.enable		= exynos5_clk_ip_gscl0_ctrl,
@@ -3543,7 +3539,7 @@ static struct clk_ops exynos5420_epll_ops = {
 
 /* DPLL */
 static struct pll_div_data exynos5_dpll_div[] = {
-	{600000000, 2, 100, 1, 0,  0, 0},
+	{600000000, 2, 200, 2, 0,  0, 0},
 };
 
 PLL_2550(dpll_data, DPLL, exynos5_dpll_div);
@@ -3639,8 +3635,8 @@ static struct clk_ops exynos5420_mpll_ops = {
 
 /* RPLL */
 static struct vpll_div_data exynos5_rpll_div[] = {
-	{133000000, 3, 133, 3,     0, 0, 0, 0},
-	{266000000, 3, 133, 2,     0, 0, 0, 0},
+	{133000000, 3, 266, 4,     0, 0, 0, 0},
+	{266000000, 3, 266, 3,     0, 0, 0, 0},
 	{300000000, 2, 100, 2,     0, 0, 0, 0},
 };
 

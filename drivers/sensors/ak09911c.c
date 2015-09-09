@@ -35,6 +35,7 @@
 /* Rx buffer size. i.e ST,TMPS,H1X,H1Y,H1Z*/
 #define SENSOR_DATA_SIZE		9
 #define AK09911C_DEFAULT_DELAY		200000000LL
+#define AK09911C_MIN_DELAY			10000000LL
 #define AK09911C_DRDY_TIMEOUT_MS	100
 #define AK09911C_WIA1_VALUE		0x48
 #define AK09911C_WIA2_VALUE		0x05
@@ -71,6 +72,8 @@ struct ak09911c_p {
 	u8 asa[3];
 	int chip_pos;
 	int m_rst_n;
+	u64 timestamp;
+	u64 old_timestamp;
 };
 
 static int ak09911c_i2c_read(struct i2c_client *client,
@@ -140,6 +143,7 @@ static int ak09911c_ecs_set_mode_power_down(struct ak09911c_p *data)
 	unsigned char reg;
 	int ret;
 
+	data->old_timestamp = 0LL;
 	reg = AK09911C_MODE_POWERDOWN;
 	ret = ak09911c_i2c_write(data->client, AK09911C_REG_CNTL2, reg);
 
@@ -199,11 +203,11 @@ again:
 
 	/* Check ST bit */
 	if (!(temp[0] & 0x01)) {
-		if ((retries++ < 5) && (temp[0] == 0)) {
+		if ((retries++ < 3) && (temp[0] == 0)) {
 			mdelay(2);
 			goto again;
 		} else {
-			ret = -EAGAIN;
+			ret = -1;
 			goto exit_i2c_read_fail;
 		}
 	}
@@ -212,13 +216,13 @@ again:
 			&temp[1], SENSOR_DATA_SIZE - 1);
 	if (ret < 0)
 		goto exit_i2c_read_err;
-
+#if 0
 	/* Check ST2 bit */
-	if ((temp[8] & 0x01)) {
+	if ((temp[8] & 0x08)) {
 		ret = -EAGAIN;
 		goto exit_i2c_read_fail;
 	}
-
+#endif
 	mag->x = temp[1] | (temp[2] << 8);
 	mag->y = temp[3] | (temp[4] << 8);
 	mag->z = temp[5] | (temp[6] << 8);
@@ -240,17 +244,51 @@ static void ak09911c_work_func(struct work_struct *work)
 {
 	int ret;
 	struct ak09911c_v mag;
+	struct timespec ts;
+	int time_hi, time_lo;
+
 	struct ak09911c_p *data = container_of((struct delayed_work *)work,
 			struct ak09911c_p, work);
 	unsigned long delay = nsecs_to_jiffies(atomic_read(&data->delay));
+	unsigned long pdelay = atomic_read(&data->delay);
+
+	ts = ktime_to_timespec(ktime_get_boottime());
+	data->timestamp = ts.tv_sec * 1000000000ULL + ts.tv_nsec;
+	//time_lo = (int)(data->timestamp & TIME_LO_MASK);
+	//time_hi = (int)((data->timestamp & TIME_HI_MASK) >> TIME_HI_SHIFT);
 
 	ret = ak09911c_read_mag_xyz(data, &mag);
+
 	if (ret >= 0) {
+		if (data->old_timestamp != 0 &&
+			((data->timestamp - data->old_timestamp)*10 > (pdelay) * 18)) {
+			u64 shift_timestamp = pdelay >> 1;
+			u64 timestamp = 0ULL;
+
+			for (timestamp = data->old_timestamp + pdelay; timestamp < data->timestamp - shift_timestamp; timestamp+=pdelay){
+				time_hi = (int)((timestamp & TIME_HI_MASK) >> TIME_HI_SHIFT);
+				time_lo = (int)(timestamp & TIME_LO_MASK);
+
+				input_report_rel(data->input, REL_X, mag.x);
+				input_report_rel(data->input, REL_Y, mag.y);
+				input_report_rel(data->input, REL_Z, mag.z);
+				input_report_rel(data->input, REL_RX, time_hi);
+				input_report_rel(data->input, REL_RY, time_lo);
+				input_sync(data->input);
+				data->magdata = mag;
+			}
+		}
+		time_hi = (int)((data->timestamp & TIME_HI_MASK) >> TIME_HI_SHIFT);
+		time_lo = (int)(data->timestamp & TIME_LO_MASK);
+
 		input_report_rel(data->input, REL_X, mag.x);
 		input_report_rel(data->input, REL_Y, mag.y);
 		input_report_rel(data->input, REL_Z, mag.z);
+		input_report_rel(data->input, REL_RX, time_hi);
+		input_report_rel(data->input, REL_RY, time_lo);
 		input_sync(data->input);
 		data->magdata = mag;
+		data->old_timestamp = data->timestamp;
 	}
 
 	schedule_delayed_work(&data->work, delay);
@@ -262,6 +300,7 @@ static void ak09911c_set_enable(struct ak09911c_p *data, int enable)
 
 	if (enable) {
 		if (pre_enable == 0) {
+			data->old_timestamp = 0LL;
 			ak09911c_ecs_set_mode(data, AK09911C_MODE_SNG_MEASURE);
 			schedule_delayed_work(&data->work,
 				nsecs_to_jiffies(atomic_read(&data->delay)));
@@ -325,6 +364,11 @@ static ssize_t ak09911c_delay_store(struct device *dev,
 		pr_err("[SENSOR]: %s - Invalid Argument\n", __func__);
 		return ret;
 	}
+
+	if (delay > AK09911C_DEFAULT_DELAY)
+		delay = AK09911C_DEFAULT_DELAY;
+	else if(delay < AK09911C_MIN_DELAY)
+		delay = AK09911C_MIN_DELAY;
 
 	atomic_set(&data->delay, (int64_t)delay);
 	pr_info("[SENSOR]: %s - poll_delay = %lld\n", __func__, delay);
@@ -588,6 +632,8 @@ static ssize_t ak09911c_adc(struct device *dev,
 	else
 		success = true;
 
+	data->magdata = mag;
+
 exit:
 	return snprintf(buf, PAGE_SIZE, "%s,%d,%d,%d\n",
 			(success ? "OK" : "NG"), mag.x, mag.y, mag.z);
@@ -605,6 +651,7 @@ static ssize_t ak09911c_raw_data_read(struct device *dev,
 	}
 
 	ak09911c_read_mag_xyz(data, &mag);
+	data->magdata = mag;
 
 exit:
 	return snprintf(buf, PAGE_SIZE, "%d,%d,%d\n", mag.x, mag.y, mag.z);
@@ -748,6 +795,9 @@ static int ak09911c_input_init(struct ak09911c_p *data)
 	input_set_capability(dev, EV_REL, REL_X);
 	input_set_capability(dev, EV_REL, REL_Y);
 	input_set_capability(dev, EV_REL, REL_Z);
+	input_set_capability(dev, EV_REL, REL_RX); /* time_hi */
+	input_set_capability(dev, EV_REL, REL_RY); /* time_lo */
+
 	input_set_drvdata(dev, data);
 
 	ret = input_register_device(dev);
@@ -765,8 +815,7 @@ static int ak09911c_input_init(struct ak09911c_p *data)
 	/* sysfs node creation */
 	ret = sysfs_create_group(&dev->dev.kobj, &ak09911c_attribute_group);
 	if (ret < 0) {
-		sensors_remove_symlink(&data->input->dev.kobj,
-			data->input->name);
+		sensors_remove_symlink(&dev->dev.kobj, dev->name);
 		input_unregister_device(dev);
 		return ret;
 	}

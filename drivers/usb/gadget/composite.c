@@ -555,7 +555,12 @@ static int bos_desc(struct usb_composite_dev *cdev)
 	usb_ext->bLength = USB_DT_USB_EXT_CAP_SIZE;
 	usb_ext->bDescriptorType = USB_DT_DEVICE_CAPABILITY;
 	usb_ext->bDevCapabilityType = USB_CAP_TYPE_EXT;
+#ifdef CONFIG_USB_ANDROID_SAMSUNG_COMPOSITE
+	/* USB3.0 LPM disable, usb chapter9 bos test fails */
 	usb_ext->bmAttributes = 0;
+#else
+	usb_ext->bmAttributes = cpu_to_le32(USB_LPM_SUPPORT);
+#endif
 
 	/*
 	 * The Superspeed USB Capability descriptor shall be implemented by all
@@ -1248,8 +1253,13 @@ composite_setup(struct usb_gadget *gadget, const struct usb_ctrlrequest *ctrl)
 #ifdef CONFIG_USB_GADGET_SUPERSPEED
 		if(gadget->speed >= USB_SPEED_SUPER) {
 			if(get_host_os_type() == 0) {
+#ifdef CONFIG_V1A
+				pr_err("usb: schedule_work thread\n");
+				schedule_work(&cdev->redriver_work);
+#else
 				usb30_redriver_en(0);
 				pr_err("usb: %s redriver disabled \n",__func__);
+#endif
 			}
 		}
 #endif
@@ -1509,6 +1519,24 @@ static u8 override_id(struct usb_composite_dev *cdev, u8 *desc)
 	return *desc;
 }
 
+#ifdef CONFIG_V1A
+static void composite_redriver_work(struct work_struct *data)
+{
+	struct usb_composite_dev	*cdev =  container_of(data, struct usb_composite_dev, redriver_work);
+	pr_err("usb: %s initiate redriver disable \n",__func__);
+	usb30_redriver_en(0);
+	//
+	// Wait for 300ms for redriver to disable.
+	//
+	msleep(300);
+	pr_err("usb: %s redriver disabled \n",__func__);
+	usb_gadget_vbus_disconnect(cdev->gadget);
+	msleep(300);
+	usb_gadget_vbus_connect(cdev->gadget);
+	pr_err("usb: %s reconnect the driver \n",__func__);
+}
+#endif
+
 static int composite_bind(struct usb_gadget *gadget)
 {
 	struct usb_composite_dev	*cdev;
@@ -1608,6 +1636,9 @@ static int composite_bind(struct usb_gadget *gadget)
 		goto fail;
 
 	INFO(cdev, "%s ready\n", composite->name);
+#ifdef CONFIG_V1A
+	INIT_WORK(&cdev->redriver_work, composite_redriver_work);
+#endif
 	return 0;
 
 fail:

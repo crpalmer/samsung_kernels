@@ -944,6 +944,7 @@ static void fimc_is_sensor_instanton(struct work_struct *data)
 	}
 
 	clear_bit(FIMC_IS_SENSOR_BACK_NOWAIT_STOP, &device->state);
+	set_bit(FIMC_IS_SENSOR_FRONT_START, &device->state);
 
 #ifdef ENABLE_DTP
 	if (device->dtp_check) {
@@ -1723,7 +1724,7 @@ int fimc_is_sensor_front_start(struct fimc_is_device_sensor *device,
 
 	dbg_front("%s\n", __func__);
 
-	if (testnset_state(device, FIMC_IS_SENSOR_FRONT_START)) {
+	if (test_bit(FIMC_IS_SENSOR_FRONT_START, &device->state)) {
 		merr("already front start", device);
 		ret = -EINVAL;
 		goto p_err;

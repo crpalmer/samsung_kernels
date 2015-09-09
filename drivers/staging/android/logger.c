@@ -29,6 +29,7 @@
 
 #include <asm/ioctls.h>
 #include <mach/sec_debug.h>
+#include <mach/sec_bsp.h>
 
 /*
  * struct logger_log - represents a specific log, such as 'main' or 'radio'
@@ -449,6 +450,11 @@ static ssize_t do_write_log_from_user(struct logger_log *log,
 #ifdef CONFIG_SEC_DEBUG_TSP_LOG
 			sec_debug_tsp_log("%s\n", tmp);
 #endif
+#ifdef CONFIG_SEC_BSP
+			if (strncmp(tmp, "!@Boot", 6) == 0) {
+				sec_boot_stat_add(tmp);
+			}
+#endif
 		}
 	}
 	log->w_off = logger_offset(log, log->w_off + count);
@@ -790,6 +796,29 @@ static int __init init_log(struct logger_log *log)
 
 	return 0;
 }
+
+#if (defined CONFIG_SEC_DEBUG && defined CONFIG_SEC_DEBUG_SUBSYS)
+int sec_debug_subsys_set_logger_info(
+	struct sec_debug_subsys_logger_log_info *log_info)
+{
+	log_info->stinfo.buffer_offset = offsetof(struct logger_log, buffer);
+	log_info->stinfo.w_off_offset = offsetof(struct logger_log, w_off);
+	log_info->stinfo.head_offset = offsetof(struct logger_log, head);
+	log_info->stinfo.size_offset = offsetof(struct logger_log, size);
+	log_info->stinfo.size_t_typesize = sizeof(size_t);
+	
+	log_info->main.log_paddr = virt_to_phys(&log_main);
+	log_info->main.buffer_paddr = virt_to_phys(log_main.buffer);
+	log_info->system.log_paddr = virt_to_phys(&log_system);
+	log_info->system.buffer_paddr = virt_to_phys(log_system.buffer);
+	log_info->events.log_paddr = virt_to_phys(&log_events);
+	log_info->events.buffer_paddr = virt_to_phys(log_events.buffer);
+	log_info->radio.log_paddr = virt_to_phys(&log_radio);
+	log_info->radio.buffer_paddr = virt_to_phys(log_radio.buffer);
+
+	return 0;
+}
+#endif
 
 static int __init logger_init(void)
 {

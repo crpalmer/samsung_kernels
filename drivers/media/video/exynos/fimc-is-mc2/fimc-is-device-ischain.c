@@ -939,10 +939,14 @@ static int fimc_is_ischain_loadsetf(struct fimc_is_device_ischain *this,
 	dbg_ischain("%s\n", __func__);
 	cam_id = fimc_is_sec_get_camid();
 
+#ifdef CONFIG_CAMERA_EEPROM
+	setfile_select = setf_name;
+#else
 	if (cam_id == CAMERA_SINGLE_REAR || cam_id == CAMERA_DUAL_REAR)
 		setfile_select = setf_name;
 	else
 		setfile_select = setfile_name;
+#endif
 
 	old_fs = get_fs();
 	set_fs(KERNEL_DS);
@@ -2319,7 +2323,8 @@ static int fimc_is_itf_grp_shot(struct fimc_is_device_ischain *device,
 			i2c_clk = I2C_L0;
 		} else if (fimc_is_get_dvfs_scenario(core) == DVFS_SCENARIO_DUAL) {
 			int_level = DVFS_L1_1;
-#if defined(CONFIG_N1A) || defined(CONFIG_N2A)
+//#if defined(CONFIG_N1A) || defined(CONFIG_N2A)
+#if 0
 			if ((device->setfile & FIMC_IS_SETFILE_MASK) == \
 				ISS_SUB_SCENARIO_DUAL_VIDEO) {
 				mif_level = DVFS_MIF_L1;
@@ -2327,7 +2332,7 @@ static int fimc_is_itf_grp_shot(struct fimc_is_device_ischain *device,
 				mif_level = DVFS_MIF_L3;
 			}
 #else
-			mif_level = DVFS_MIF_L3;
+			mif_level = DVFS_MIF_L1;
 #endif
 			i2c_clk = I2C_L1_1;
 		} else {

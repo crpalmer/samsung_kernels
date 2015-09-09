@@ -35,7 +35,7 @@
 
 
 /* definitions */
-#define	SEC_SIZEOF_POWER_SUPPLY_TYPE	14
+#define	SEC_SIZEOF_POWER_SUPPLY_TYPE	POWER_SUPPLY_TYPE_MAX
 
 enum sec_battery_voltage_mode {
 	/* average voltage */
@@ -80,7 +80,8 @@ enum sec_battery_adc_channel {
 	SEC_BAT_ADC_CHANNEL_TEMP_AMBIENT,
 	SEC_BAT_ADC_CHANNEL_FULL_CHECK,
 	SEC_BAT_ADC_CHANNEL_VOLTAGE_NOW,
-	SEC_BAT_ADC_CHANNEL_NUM
+	SEC_BAT_ADC_CHANNEL_INBAT_VOLTAGE,
+	SEC_BAT_ADC_CHANNEL_NUM,
 };
 
 /* charging mode */
@@ -456,6 +457,11 @@ struct sec_battery_platform_data {
 
 	sec_battery_temp_check_t temp_check_type;
 	unsigned int temp_check_count;
+	
+	unsigned int QRTable00;
+	unsigned int QRTable10;
+	unsigned int QRTable20;
+	unsigned int QRTable30;
 	/*
 	 * limit can be ADC value or Temperature
 	 * depending on temp_check_type
@@ -473,6 +479,14 @@ struct sec_battery_platform_data {
 	int temp_high_recovery_lpm;
 	int temp_low_threshold_lpm;
 	int temp_low_recovery_lpm;
+
+	/*
+	 * in-battery voltage check for table models:
+	 * To read real battery voltage with Jig cable attached,
+	 * dedicated hw pin & conversion table of adc-voltage are required
+	 */
+	const sec_bat_adc_table_data_t *inbat_adc_table;
+	unsigned int inbat_adc_table_size;
 
 	/* If these is NOT full check type or NONE full check type,
 	 * it is skipped
@@ -521,6 +535,9 @@ struct sec_battery_platform_data {
 	int capacity_max;
 	int capacity_max_margin;
 	int capacity_min;
+
+	/* MTBF test for CMCC */
+	bool is_hc_usb;
 
 	/* charger */
 	char *charger_name;
@@ -590,10 +607,10 @@ do {	\
 	[(driver)->pdata->battery_type])
 
 #define GET_MAIN_CABLE_TYPE(extended)	\
-	((extended >> ONLINE_TYPE_MAIN_SHIFT)&0xf)
+	((extended >> ONLINE_TYPE_MAIN_SHIFT)&0xFF)
 #define GET_SUB_CABLE_TYPE(extended)	\
-	((extended >> ONLINE_TYPE_SUB_SHIFT)&0xf)
+	((extended >> ONLINE_TYPE_SUB_SHIFT)&0xFF)
 #define GET_POWER_CABLE_TYPE(extended)	\
-	((extended >> ONLINE_TYPE_PWR_SHIFT)&0xf)
+	((extended >> ONLINE_TYPE_PWR_SHIFT)&0xFF)
 
 #endif /* __SEC_CHARGING_COMMON_H */
